@@ -1,0 +1,86 @@
+# aliases 
+alias ls='lsd -alh'
+alias leet='NVIM_APPNAME="leetcode" nvim leetcode.nvim'
+alias cp="cp -i"                                                # Confirm before overwriting something
+alias df='df -h'                                                # Human-readable sizes
+alias free='free -m'                                            # Show sizes in MB
+alias cl='clear'
+alias pbpaste='xsel --output --clipboard'
+alias pbcopy='xsel --input --clipboard'
+alias tmux='tmux -u'
+alias tls='tmux ls'
+alias treeg='tree --gitignore -a -I .git'
+alias mgr='mongod --dbpath="/home/harsh/.db/data"' # start the mongodb server
+alias cht='cheatsheet.sh'
+alias et='eza --tree -a  --icons=always --git-ignore'
+alias lg='lazygit'
+alias el='eza --icons'
+alias t='tmux-session.sh'
+alias c='cheatsheet.sh'
+alias sv='cat "$(fd -e svg . ~/SVGs | fzf)" | wl-copy'
+alias svg="fd -e svg . ~/SVGs | fzf --preview 'kitty +kitten icat {} 2>/dev/null' --preview-window=right:70% | xargs cat | wl-copy"
+alias vi='nvim'
+alias vim='nvim'
+function sesh-sessions() {
+
+  {
+    exec </dev/tty
+    exec <&1
+    local session
+    session=$(sesh list -t -c | fzf --height 40% --reverse --border-label ' sesh ' --border --prompt '⚡  ' --preview 'sesh preview {}')
+    zle reset-prompt > /dev/null 2>&1 || true
+    [[ -z "$session" ]] && return
+    sesh connect $session
+  }
+}
+
+sesh-all ()
+{
+  exec </dev/tty
+  exec <&1
+  local session
+  session=$(sesh list | fzf --reverse --border --prompt '⚡  ' --preview 'sesh preview {}' )
+  zle reset-prompt > /dev/null 2>&1 || true
+  [[ -z "$session" ]] && return
+  sesh connect $session
+}
+
+cheatsheet() {
+  cheatsheet.sh
+}
+
+wlogin() {
+  wifi-login.sh
+}
+
+wlogout() {
+  curl -sS http://10.1.0.1:2281/submit/logout.php > /dev/null
+}
+
+mkcd() {
+  mkdir -p "$1" && cd "$1"
+}
+
+svgclip() {
+  local svg
+  svg=$(fd -e svg . ~/SVGs | fzf --preview 'kitty +kitten icat {} 2>/dev/null' --preview-window=right:70%)
+  [[ -n "$svg" ]] && cat "$svg" | wl-copy
+  zle reset-prompt
+}
+zle -N svgclip
+
+
+# zle -N cheatsheet
+# bindkey '\ek' cheatsheet
+
+# CTRL K
+zle     -N            sesh-all
+bindkey -M emacs '^k' sesh-all
+bindkey -M vicmd '^k' sesh-all
+bindkey -M viins '^k' sesh-all
+
+# ALT S
+bindkey -M emacs '\es' svgclip
+bindkey -M viins '\es' svgclip
+bindkey -M vicmd '\es' svgclip
+

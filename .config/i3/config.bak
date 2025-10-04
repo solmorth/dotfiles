@@ -10,7 +10,7 @@
 # Please see https://i3wm.org/docs/userguide.html for a complete reference!
 
 workspace 1 output HDMI-0
-set $mod Mod1
+set $mod Mod4
 set $alt Mod1
 
 # Font for window titles. Will also be used by the bar unless a different font
@@ -37,7 +37,7 @@ exec --no-startup-id xautolock -detectsleep -time 5 -locker "i3lock -c 000000"
 
 # NetworkManager is the most popular way to manage wireless networks on Linux,
 # and nm-applet is a desktop environment-independent system tray GUI for it.
-exec --no-startup-id nm-applet
+##exec --no-startup-id nm-applet
 
 # Use pactl to adjust volume in PulseAudio.
 # set $refresh_i3status killall -SIGUSR1 i3status
@@ -64,6 +64,7 @@ bindsym $mod+q kill
 # start rofi (a program launcher)
 bindsym $alt+Tab exec --no-startup-id rofi -show window
 bindsym $mod+space exec --no-startup-id rofi -show drun 
+bindsym $alt+w exec --no-startup-id rofi-wifi-menu.sh
 bindsym $mod+Shift+f exec --no-startup-id nautilus
 bindsym $mod+Shift+b exec  --no-startup-id zen-browser
 bindsym $mod+Shift+d exec  --no-startup-id chromium
@@ -76,6 +77,10 @@ bindsym $mod+Shift+v exec  --no-startup-id code
 # .desktop file. It is a wrapper around dmenu, so you need that installed.
 # bindcode $mod+40 exec --no-startup-id i3-dmenu-desktop
 # change focus
+bindsym $mod+h focus left
+bindsym $mod+j focus down
+bindsym $mod+k focus up
+bindsym $mod+l focus right
 
 # alternatively, you can use the cursor keys:
 bindsym $mod+Left focus left
@@ -145,6 +150,7 @@ bindsym $mod+7 workspace number $ws7
 bindsym $mod+8 workspace number $ws8
 bindsym $mod+9 workspace number $ws9
 bindsym $mod+0 workspace number $ws10
+bindsym $mod+Tab workspace back_and_forth
 
 # move focused container to workspace
 bindsym $mod+Shift+1 move container to workspace number $ws1
@@ -249,4 +255,4 @@ client.background        $base
 exec_always --no-startup-id nitrogen --restore
 exec_always --no-startup-id dunst
 exec_always --no-startup-id picom
-#exec_always setxkbmap -option caps:escape_shifted_capslock
+exec_always setxkbmap -option caps:escape_shifted_capslock
