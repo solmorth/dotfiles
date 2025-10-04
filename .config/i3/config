@@ -9,6 +9,13 @@ font pango:JetBrains Mono 11
 # Launch terminal
 bindsym $mod+Return exec alacritty
 
+# xss-lock grabs a logind suspend inhibit lock and will use i3lock to lock the
+# screen before suspend. Use loginctl lock-session to lock your screen.
+exec --no-startup-id xss-lock --transfer-sleep-lock -- i3lock --nofork
+
+# auto lock the screen
+exec --no-startup-id xautolock -detectsleep -time 5 -locker "i3lock -c 000000"
+
 # Launch Rofi
 bindsym $mod+d exec rofi -show drun
 bindsym $alt+w exec --no-startup-id /home/solmorth/.dotfiles/scripts/rofi-wifi-menu.sh
