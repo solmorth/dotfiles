@@ -129,4 +129,5 @@ textbox {
     background-color: @bg-col-light;
 }
 //@theme "/usr/share/rofi/themes/blue.rasi"
-@theme "/usr/share/rofi/themes/gruvbox-dark-soft.rasi"
+//@theme "/usr/share/rofi/themes/gruvbox-dark-soft.rasi"
+@theme "/usr/share/rofi/themes/lb.rasi"
