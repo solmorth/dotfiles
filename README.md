@@ -24,6 +24,6 @@ The setup is designed for productivity and simplicity, focusing on keyboard-driv
 - bumblebee-status for system metrics and modular status bar  
 
 ## Screenshots
-![a](images/vi.png)
-![a](images/terminal.png)
-![a](images/desktop.png)
+![a](vi.png)
+![a](terminal.png)
+![a](desktop.png)
