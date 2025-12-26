@@ -8,6 +8,8 @@ import sys
 import os
 import json
 import shutil
+import signal
+import atexit
 
 # Try to import RPi.GPIO, fallback to mock for testing on non-RPi systems
 try:
@@ -157,6 +159,41 @@ class GPIOController:
 
         # Load saved configuration
         self.load_config()
+        
+        # Register cleanup handlers for graceful shutdown
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        atexit.register(self._cleanup_on_exit)
+    
+    def _signal_handler(self, signum, frame):
+        """Handle termination signals"""
+        print(f"\n\n{Colors.YELLOW}Received signal {signum}. Shutting down safely...{Colors.RESET}")
+        self._cleanup_on_exit()
+        sys.exit(0)
+    
+    def _cleanup_on_exit(self):
+        """Cleanup function called on exit - sets all outputs to LOW"""
+        try:
+            # Set all output pins to LOW before cleanup
+            output_pins = [pin for pin, config in self.configured_pins.items() 
+                          if config.get('direction') == 'output']
+            
+            if output_pins:
+                print(f"{Colors.CYAN}Setting all output pins to LOW...{Colors.RESET}")
+                for pin in output_pins:
+                    try:
+                        GPIO.output(pin, GPIO.LOW)
+                        self.configured_pins[pin]['state'] = GPIO.LOW
+                    except Exception as e:
+                        pass  # Ignore errors during cleanup
+            
+            # Save configuration
+            self.save_config()
+            
+            # Cleanup GPIO
+            GPIO.cleanup()
+        except Exception:
+            pass  # Ignore errors during cleanup
     
     def save_config(self):
         """Save current pin configuration to file (excluding output states)"""
@@ -599,22 +636,19 @@ class GPIOController:
                 elif choice == "0":
                     continue  # Refresh display
                 elif choice == "q":
-                    print(f"\n{Colors.CYAN}Saving configuration and exiting...{Colors.RESET}")
-                    self.save_config()
-                    GPIO.cleanup()
+                    print(f"\n{Colors.CYAN}Exiting...{Colors.RESET}")
+                    # Cleanup will be called automatically by atexit
                     break
                 else:
                     print(f"{Colors.RED}Invalid choice!{Colors.RESET}")
                     input(f"\n{Colors.GRAY}Press Enter to continue...{Colors.RESET}")
         
         except KeyboardInterrupt:
-            print(f"\n\n{Colors.YELLOW}Interrupted by user.{Colors.RESET}")
-            print(f"{Colors.CYAN}Saving configuration...{Colors.RESET}")
-            self.save_config()
-            GPIO.cleanup()
+            # Signal handler will take care of cleanup
+            pass
         except Exception as e:
             print(f"\n{Colors.RED}Fatal error: {str(e)}{Colors.RESET}")
-            GPIO.cleanup()
+            # atexit will call cleanup
 
 
 def main():
