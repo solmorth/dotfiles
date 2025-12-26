@@ -6,6 +6,8 @@ This script provides a terminal-based interface to visualize and control GPIO pi
 
 import sys
 import os
+import json
+import shutil
 
 # Try to import RPi.GPIO, fallback to mock for testing on non-RPi systems
 try:
@@ -132,6 +134,96 @@ class GPIOController:
         
         # Track configured pins
         self.configured_pins = {}
+        
+        # Config file path - follow XDG spec or fallback to ~/.config/ores/
+        xdg_config_home = os.environ.get('XDG_CONFIG_HOME') or os.path.expanduser('~/.config')
+        config_dir = os.path.join(xdg_config_home, 'ores')
+        self.config_file = os.path.join(config_dir, 'gpio_config.json')
+
+        # If an old config exists next to the script, migrate it to the XDG location
+        old_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gpio_config.json')
+        try:
+            if os.path.exists(old_path) and not os.path.exists(self.config_file):
+                os.makedirs(config_dir, exist_ok=True)
+                try:
+                    shutil.move(old_path, self.config_file)
+                    print(f"{Colors.CYAN}Migrated config from {old_path} to {self.config_file}{Colors.RESET}")
+                except Exception:
+                    # fallback to copy
+                    shutil.copy2(old_path, self.config_file)
+                    print(f"{Colors.CYAN}Copied config from {old_path} to {self.config_file}{Colors.RESET}")
+        except Exception as e:
+            print(f"{Colors.YELLOW}Warning: failed to migrate config: {e}{Colors.RESET}")
+
+        # Load saved configuration
+        self.load_config()
+    
+    def save_config(self):
+        """Save current pin configuration to file (excluding output states)"""
+        try:
+            config_data = {}
+            for pin, cfg in self.configured_pins.items():
+                config_data[str(pin)] = {
+                    'direction': cfg['direction'],
+                    'pull': cfg.get('pull', 'none'),
+                    'name': cfg.get('name', '')
+                    # Note: We don't save 'state' - outputs always start LOW
+                }
+            # Ensure parent directory exists
+            os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
+            with open(self.config_file, 'w') as f:
+                json.dump(config_data, f, indent=2)
+            
+            return True
+        except Exception as e:
+            print(f"{Colors.RED}Error saving config: {str(e)}{Colors.RESET}")
+            return False
+    
+    def load_config(self):
+        """Load pin configuration from file (outputs always start LOW)"""
+        if not os.path.exists(self.config_file):
+            return
+        
+        try:
+            with open(self.config_file, 'r') as f:
+                config_data = json.load(f)
+            
+            for pin_str, cfg in config_data.items():
+                pin = int(pin_str)
+                
+                # Setup the pin according to saved configuration
+                try:
+                    if cfg['direction'] == 'output':
+                        GPIO.setup(pin, GPIO.OUT)
+                        # Always initialize outputs to LOW
+                        GPIO.output(pin, GPIO.LOW)
+                        self.configured_pins[pin] = {
+                            'direction': 'output',
+                            'state': GPIO.LOW,
+                            'name': cfg.get('name', '')
+                        }
+                    else:  # input
+                        pull = cfg.get('pull', 'none')
+                        if pull == 'up':
+                            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+                        elif pull == 'down':
+                            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+                        else:
+                            GPIO.setup(pin, GPIO.IN)
+                        
+                        self.configured_pins[pin] = {
+                            'direction': 'input',
+                            'pull': pull,
+                            'name': cfg.get('name', '')
+                        }
+                except Exception as e:
+                    print(f"{Colors.YELLOW}Warning: Could not restore GPIO{pin}: {str(e)}{Colors.RESET}")
+            
+            if self.configured_pins:
+                print(f"{Colors.GREEN}✓ Loaded configuration for {len(self.configured_pins)} pin(s){Colors.RESET}")
+        
+        except Exception as e:
+            print(f"{Colors.YELLOW}Warning: Could not load config file: {str(e)}{Colors.RESET}")
     
     def clear_screen(self):
         """Clear the terminal screen"""
@@ -191,10 +283,13 @@ class GPIOController:
             else:
                 status = self.get_pin_status_symbol(bcm_left)
                 config_text = ""
+                custom_name = ""
                 if bcm_left in self.configured_pins:
                     cfg = self.configured_pins[bcm_left]
                     config_text = f" {Colors.CYAN}[{cfg['direction'][:3].upper()}]{Colors.RESET}"
-                left_display = f"{status} [{left_pin:02d}] {name_left:7} ({func_left:10}){config_text}"
+                    if cfg.get('name'):
+                        custom_name = f" {Colors.MAGENTA}'{cfg['name']}'{Colors.RESET}"
+                left_display = f"{status} [{left_pin:02d}] {name_left:7} ({func_left:10}){config_text}{custom_name}"
             
             # Right pin
             bcm_right, name_right, func_right = self.PIN_MAP[right_pin]
@@ -208,12 +303,15 @@ class GPIOController:
             else:
                 status = self.get_pin_status_symbol(bcm_right)
                 config_text = ""
+                custom_name = ""
                 if bcm_right in self.configured_pins:
                     cfg = self.configured_pins[bcm_right]
                     config_text = f"{Colors.CYAN}[{cfg['direction'][:3].upper()}]{Colors.RESET} "
-                right_display = f"{config_text}({func_right:10}) {name_right:7} [{right_pin:02d}] {status}"
+                    if cfg.get('name'):
+                        custom_name = f"{Colors.MAGENTA}'{cfg['name']}' {Colors.RESET}"
+                right_display = f"{custom_name}{config_text}({func_right:10}) {name_right:7} [{right_pin:02d}] {status}"
             
-            print(f"{left_display:60}  {right_display}")
+            print(f"{left_display:90}  {right_display}")
         
         print(f"\n{Colors.BOLD}Legend:{Colors.RESET} {Colors.GREEN}●{Colors.RESET} OUT-HIGH  {Colors.RED}●{Colors.RESET} OUT-LOW  {Colors.BLUE}●{Colors.RESET} IN-HIGH  {Colors.GRAY}●{Colors.RESET} IN-LOW  {Colors.GRAY}○{Colors.RESET} Not Configured")
     
@@ -227,9 +325,10 @@ class GPIOController:
         print("  4. Set All Outputs HIGH")
         print("  5. Set All Outputs LOW")
         print("  6. Show Pin Details")
-        print("  7. Cleanup All Pins")
-        print("  8. Refresh Display")
-        print("  0. Exit")
+        print("  7. Rename Pin")
+        print("  8. Cleanup All Pins")
+        print("  0. Refresh Display")
+        print("  q. Exit")
         print(f"{Colors.BOLD}{Colors.CYAN}═══════════════════════════════════════════════════════════════════{Colors.RESET}")
     
     def setup_pin(self):
@@ -243,6 +342,9 @@ class GPIOController:
                 print(f"{Colors.RED}Invalid GPIO pin number!{Colors.RESET}")
                 return
             
+            # Ask for custom name
+            custom_name = input(f"Enter custom name for this pin (optional, press Enter to skip): ").strip()
+            
             print(f"\n{Colors.BOLD}Configure GPIO{bcm_pin}:{Colors.RESET}")
             print("  1. Output")
             print("  2. Input (no pull)")
@@ -253,7 +355,7 @@ class GPIOController:
             
             if choice == "1":
                 GPIO.setup(bcm_pin, GPIO.OUT)
-                self.configured_pins[bcm_pin] = {'direction': 'output', 'state': GPIO.LOW}
+                self.configured_pins[bcm_pin] = {'direction': 'output', 'state': GPIO.LOW, 'name': custom_name}
                 GPIO.output(bcm_pin, GPIO.LOW)
                 print(f"{Colors.GREEN}✓ GPIO{bcm_pin} configured as OUTPUT (initialized to LOW){Colors.RESET}")
             
@@ -268,10 +370,15 @@ class GPIOController:
                     GPIO.setup(bcm_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
                     pull = "down"
                 
-                self.configured_pins[bcm_pin] = {'direction': 'input', 'pull': pull}
+                self.configured_pins[bcm_pin] = {'direction': 'input', 'pull': pull, 'name': custom_name}
                 print(f"{Colors.GREEN}✓ GPIO{bcm_pin} configured as INPUT (pull-{pull}){Colors.RESET}")
             else:
                 print(f"{Colors.RED}Invalid option!{Colors.RESET}")
+                return
+            
+            # Auto-save configuration after setup
+            if self.save_config():
+                print(f"{Colors.CYAN}✓ Configuration saved{Colors.RESET}")
         
         except ValueError:
             print(f"{Colors.RED}Invalid input!{Colors.RESET}")
@@ -304,10 +411,12 @@ class GPIOController:
                     GPIO.output(bcm_pin, GPIO.HIGH)
                     self.configured_pins[bcm_pin]['state'] = GPIO.HIGH
                     print(f"{Colors.GREEN}✓ GPIO{bcm_pin} set to HIGH{Colors.RESET}")
+                    self.save_config()
                 elif choice == "2":
                     GPIO.output(bcm_pin, GPIO.LOW)
                     self.configured_pins[bcm_pin]['state'] = GPIO.LOW
                     print(f"{Colors.GREEN}✓ GPIO{bcm_pin} set to LOW{Colors.RESET}")
+                    self.save_config()
                 elif choice == "3":
                     current = self.configured_pins[bcm_pin].get('state', GPIO.LOW)
                     new_state = GPIO.LOW if current == GPIO.HIGH else GPIO.HIGH
@@ -315,6 +424,7 @@ class GPIOController:
                     self.configured_pins[bcm_pin]['state'] = new_state
                     state_text = "HIGH" if new_state == GPIO.HIGH else "LOW"
                     print(f"{Colors.GREEN}✓ GPIO{bcm_pin} toggled to {state_text}{Colors.RESET}")
+                    self.save_config()
                 else:
                     print(f"{Colors.RED}Invalid option!{Colors.RESET}")
             
@@ -372,6 +482,9 @@ class GPIOController:
                 except Exception as e:
                     print(f"  GPIO{pin:2d}: {Colors.RED}Error - {str(e)}{Colors.RESET}")
             print(f"{Colors.GREEN}Done!{Colors.RESET}")
+            
+            # Auto-save configuration
+            self.save_config()
         
         input(f"\n{Colors.GRAY}Press Enter to continue...{Colors.RESET}")
     
@@ -381,11 +494,12 @@ class GPIOController:
             print(f"\n{Colors.YELLOW}No pins configured yet!{Colors.RESET}")
         else:
             print(f"\n{Colors.BOLD}Configured Pins:{Colors.RESET}")
-            print(f"{'BCM':>4} | {'Direction':^10} | {'State':^10} | {'Pull':^10}")
-            print("-" * 45)
+            print(f"{'BCM':>4} | {'Name':^15} | {'Direction':^10} | {'State':^10} | {'Pull':^10}")
+            print("-" * 60)
             for pin in sorted(self.configured_pins.keys()):
                 config = self.configured_pins[pin]
                 direction = config['direction'].upper()
+                name = config.get('name', '-')[:15]
                 
                 if config['direction'] == 'output':
                     state = "HIGH" if config.get('state') == GPIO.HIGH else "LOW"
@@ -398,7 +512,42 @@ class GPIOController:
                         state = "ERROR"
                     pull = config.get('pull', 'none').upper()
                 
-                print(f"{pin:4} | {direction:^10} | {state:^10} | {pull:^10}")
+                print(f"{pin:4} | {name:^15} | {direction:^10} | {state:^10} | {pull:^10}")
+        
+        input(f"\n{Colors.GRAY}Press Enter to continue...{Colors.RESET}")
+    
+    def rename_pin(self):
+        """Rename a configured pin"""
+        try:
+            bcm_pin = int(input(f"\n{Colors.BOLD}Enter BCM pin number to rename: {Colors.RESET}"))
+            
+            if bcm_pin not in self.configured_pins:
+                print(f"{Colors.RED}Pin not configured! Please setup first.{Colors.RESET}")
+                input(f"\n{Colors.GRAY}Press Enter to continue...{Colors.RESET}")
+                return
+            
+            current_name = self.configured_pins[bcm_pin].get('name', '')
+            if current_name:
+                print(f"Current name: {Colors.MAGENTA}'{current_name}'{Colors.RESET}")
+            else:
+                print("Current name: (none)")
+            
+            new_name = input(f"Enter new name (or press Enter to remove name): ").strip()
+            self.configured_pins[bcm_pin]['name'] = new_name
+            
+            if new_name:
+                print(f"{Colors.GREEN}✓ GPIO{bcm_pin} renamed to '{new_name}'{Colors.RESET}")
+            else:
+                print(f"{Colors.GREEN}✓ GPIO{bcm_pin} name removed{Colors.RESET}")
+            
+            # Auto-save configuration
+            if self.save_config():
+                print(f"{Colors.CYAN}✓ Configuration saved{Colors.RESET}")
+        
+        except ValueError:
+            print(f"{Colors.RED}Invalid input!{Colors.RESET}")
+        except Exception as e:
+            print(f"{Colors.RED}Error: {str(e)}{Colors.RESET}")
         
         input(f"\n{Colors.GRAY}Press Enter to continue...{Colors.RESET}")
     
@@ -410,6 +559,10 @@ class GPIOController:
             try:
                 GPIO.cleanup()
                 self.configured_pins.clear()
+                
+                # Save empty configuration
+                self.save_config()
+                
                 print(f"{Colors.GREEN}✓ All GPIO pins cleaned up!{Colors.RESET}")
             except Exception as e:
                 print(f"{Colors.RED}Error: {str(e)}{Colors.RESET}")
@@ -425,7 +578,7 @@ class GPIOController:
                 self.display_pins()
                 self.show_menu()
                 
-                choice = input(f"\n{Colors.BOLD}Enter your choice: {Colors.RESET}").strip()
+                choice = input(f"\n{Colors.BOLD}Enter your choice: {Colors.RESET}").strip().lower()
                 
                 if choice == "1":
                     self.setup_pin()
@@ -440,11 +593,14 @@ class GPIOController:
                 elif choice == "6":
                     self.show_pin_details()
                 elif choice == "7":
-                    self.cleanup_all()
+                    self.rename_pin()
                 elif choice == "8":
-                    continue  # Refresh display
+                    self.cleanup_all()
                 elif choice == "0":
-                    print(f"\n{Colors.CYAN}Cleaning up and exiting...{Colors.RESET}")
+                    continue  # Refresh display
+                elif choice == "q":
+                    print(f"\n{Colors.CYAN}Saving configuration and exiting...{Colors.RESET}")
+                    self.save_config()
                     GPIO.cleanup()
                     break
                 else:
@@ -453,6 +609,8 @@ class GPIOController:
         
         except KeyboardInterrupt:
             print(f"\n\n{Colors.YELLOW}Interrupted by user.{Colors.RESET}")
+            print(f"{Colors.CYAN}Saving configuration...{Colors.RESET}")
+            self.save_config()
             GPIO.cleanup()
         except Exception as e:
             print(f"\n{Colors.RED}Fatal error: {str(e)}{Colors.RESET}")
@@ -469,11 +627,6 @@ def main():
     
     app = GPIOController()
     app.run()
-
-
-if __name__ == "__main__":
-    main()
-
 
 
 if __name__ == "__main__":
